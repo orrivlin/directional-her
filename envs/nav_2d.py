@@ -11,6 +11,7 @@ import numpy as np
 from matplotlib.pyplot import imshow
 import matplotlib as plt
 from copy import deepcopy as dc
+from gym import spaces
 
 
 
@@ -23,6 +24,8 @@ class Nav2D:
         self.state_dim = [N,N,3]
         self.action_dim = 4
         self.scale = 10.0
+        self.observation_space = spaces.Box(-np.inf, np.inf, shape=(3, N, N))
+        self.action_space = spaces.Discrete(4)
         
     def get_dims(self):
         return self.state_dim, self.action_dim
@@ -45,9 +48,11 @@ class Nav2D:
                 break
         grid[start[0],start[1],1] = self.scale*1.0
         grid[finish[0],finish[1],2] = self.scale*1.0
-        return grid
+        self.grid = grid
+        return np.transpose(grid, (2, 0, 1))
     
-    def step(self,grid,action):        
+    def step(self, action):
+        grid = self.grid.copy()
         new_grid = dc(grid)
         done = False
         reward = -1.0
@@ -57,7 +62,8 @@ class Nav2D:
         new_pos = pos + act[action]
         
         if (np.any(new_pos < 0.0) or np.any(new_pos > (self.N - 1)) or (grid[new_pos[0],new_pos[1],0] == 1.0)):
-            return grid, reward, done
+            self.grid = grid
+            return np.transpose(grid, (2, 0, 1)), reward, done, dict()
         
         reward = 0
         new_grid[pos[0],pos[1],1] = 0.0
@@ -65,10 +71,16 @@ class Nav2D:
         if ((new_pos[0] == target[0]) and (new_pos[1] == target[1])):
             reward = 1.0
             done = True
-        return new_grid, reward, done
+        self.grid = new_grid
+        return np.transpose(grid, (2, 0, 1)), reward, done, dict()
     
-    def get_tensor(self,grid):
-        S = torch.Tensor(grid).transpose(2,1).transpose(1,0).unsqueeze(0)
+    # def get_tensor(self):
+    #     #S = torch.Tensor(self.grid).transpose(2,1).transpose(1,0).unsqueeze(0)
+    #     S = torch.Tensor(self.grid).unsqueeze(0)
+    #     return S
+
+    def get_tensor(self, state, device):
+        S = torch.Tensor(state).unsqueeze(0).to(device)
         return S
     
     def get_goal(self, state):

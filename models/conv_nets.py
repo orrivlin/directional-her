@@ -9,10 +9,16 @@ Created on Tue Jun 16 23:47:02 2020
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from collections import defaultdict
 import numpy as np
+from torch.distributions import Categorical
 
 
+
+def initialize_weights_he(m):
+    if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
+        torch.nn.init.kaiming_uniform_(m.weight)
+        if m.bias is not None:
+            torch.nn.init.constant_(m.bias, 0)
 
 
 class ResNetBlock(nn.Module):
@@ -78,8 +84,51 @@ class Conv2Vec(nn.Module):
                                             nn.ReLU(),
                                             nn.Linear(256, 256),
                                             nn.ReLU(),
-                                            nn.Linear(256, 1))
+                                            nn.Linear(256, out_dim))
         
     def forward(self, x):
         x = self.backbone(x)
         return self.frontend(x)
+
+
+class DiscreteActor(nn.Module):
+
+    def __init__(self, in_channels, num_actions):
+        super(DiscreteActor, self).__init__()
+        self.model = Conv2Vec(in_channels, num_actions)
+
+    def forward(self, x):
+        return F.softmax(self.model(x), dim=1)
+
+    def act(self, x, deterministic=False):
+        with torch.no_grad():
+            action_probs = self.forward(x)
+            if deterministic:
+                actions = torch.argmax(action_probs, dim=1, keepdim=True)
+            else:
+                action_dist = Categorical(action_probs)
+                actions = action_dist.sample().view(-1, 1)
+        return actions.squeeze().cpu().item()
+
+    def sample(self, x):
+        action_probs = self.forward(x)
+        action_dist = Categorical(action_probs)
+        actions = action_dist.sample().view(-1, 1)
+
+        # Avoid numerical instability.
+        z = (action_probs == 0.0).float() * 1e-8
+        log_action_probs = torch.log(action_probs + z)
+
+        return actions, action_probs, log_action_probs
+
+
+class DiscreteCritic(nn.Module):
+    def __init__(self, num_channels, num_actions):
+        super().__init__()
+        self.Q1 = Conv2Vec(num_channels, num_actions)
+        self.Q2 = Conv2Vec(num_channels, num_actions)
+
+    def forward(self, states):
+        q1 = self.Q1(states)
+        q2 = self.Q2(states)
+        return q1, q2
