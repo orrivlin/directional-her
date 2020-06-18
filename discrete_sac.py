@@ -27,7 +27,7 @@ class DiscreteSAC:
                  lr=0.0003, memory_size=1000000, gamma=0.99, multi_step=1,
                  target_entropy_ratio=0.98, start_steps=5,
                  update_interval=4, target_update_interval=8000,
-                 use_per=False, max_episode_steps=27000, log_interval=10,
+                 use_per=False, max_episode_steps=27000, log_interval=30,
                  device='cuda', seed=0):
 
         self.env = env
@@ -45,6 +45,7 @@ class DiscreteSAC:
         self.max_episode_steps = max_episode_steps
         self.log_interval = log_interval
         self.device = device
+        self.iter_num = 0
 
         if use_per:
             beta_steps = (num_steps - start_steps) / update_interval
@@ -180,7 +181,7 @@ class DiscreteSAC:
             else:
                 #action = self.explore(state)
                 action = self.exploit(self.env.get_tensor(state, self.device))
-
+                
             next_state, reward, done, _ = self.env.step(action)
 
             # Clip reward to [-1.0, 1.0].
@@ -195,10 +196,14 @@ class DiscreteSAC:
             state = next_state
 
             if self.is_update():
-                self.learn()
+                mean_q_loss, mean_pi_loss, mean_entropy_loss = self.learn()
+            else:
+                mean_q_loss, mean_pi_loss, mean_entropy_loss = 0, 0, 0
 
             if self.steps % self.target_update_interval == 0:
                 self.update_target()
+        
+        return episode_return, episode_steps, mean_q_loss, mean_pi_loss, mean_entropy_loss
 
 
     def learn(self):
@@ -228,6 +233,11 @@ class DiscreteSAC:
 
         if self.use_per:
             self.memory.update_priority(errors)
+            
+        mean_q_loss = 0.5 * (q1_loss + q2_loss).sum().detach().cpu().item()
+        mean_pi_loss = (policy_loss).sum().detach().cpu().item()
+        mean_entropy_loss = (entropy_loss).sum().detach().cpu().item()
+        return mean_q_loss, mean_pi_loss, mean_entropy_loss
 
 
     def explore(self, state):
@@ -246,7 +256,51 @@ class DiscreteSAC:
         with torch.no_grad():
             action = self.policy.act(state)
         return action
-
+    
+    
+    def iteration(self):
+        ep_ret, ep_steps, q_loss, pi_loss, h_loss = [], [], [], [], []
+        for i in range(self.log_interval):
+            episode_return, episode_steps, mean_q_loss, mean_pi_loss, mean_entropy_loss = self.train_episode()
+            ep_ret.append(episode_return)
+            ep_steps.append(episode_steps)
+            q_loss.append(mean_q_loss)
+            pi_loss.append(mean_pi_loss)
+            h_loss.append(mean_entropy_loss)
+        
+        log_txt = '************************************** \n'
+        log_txt += 'IterNum: {} \n'.format(self.iter_num)
+        
+        log_txt += 'AvgRet: {} \n'.format(np.array(ep_ret).mean())
+        log_txt += 'MinRet: {} \n'.format(np.array(ep_ret).min())
+        log_txt += 'MaxRet: {} \n'.format(np.array(ep_ret).max())
+        log_txt += 'StdRet: {} \n'.format(np.array(ep_ret).std())
+        log_txt += '---- \n'
+        log_txt += 'AvgSteps: {} \n'.format(np.array(ep_steps).mean())
+        log_txt += 'MinSteps: {} \n'.format(np.array(ep_steps).min())
+        log_txt += 'MaxSteps: {} \n'.format(np.array(ep_steps).max())
+        log_txt += 'StdSteps: {} \n'.format(np.array(ep_steps).std())
+        log_txt += '---- \n'
+        log_txt += 'AvgQLoss: {} \n'.format(np.array(q_loss).mean())
+        log_txt += 'MinQLoss: {} \n'.format(np.array(q_loss).min())
+        log_txt += 'MaxQLoss: {} \n'.format(np.array(q_loss).max())
+        log_txt += 'StdQLoss: {} \n'.format(np.array(q_loss).std())
+        log_txt += '---- \n'
+        log_txt += 'AvgPiLoss: {} \n'.format(np.array(pi_loss).mean())
+        log_txt += 'MinPiLoss: {} \n'.format(np.array(pi_loss).min())
+        log_txt += 'MaxPiLoss: {} \n'.format(np.array(pi_loss).max())
+        log_txt += 'StdPiLoss: {} \n'.format(np.array(pi_loss).std())
+        log_txt += '---- \n'
+        log_txt += 'AvgEntLoss: {} \n'.format(np.array(h_loss).mean())
+        log_txt += 'MinEntLoss: {} \n'.format(np.array(h_loss).min())
+        log_txt += 'MaxEntLoss: {} \n'.format(np.array(h_loss).max())
+        log_txt += 'StdEntLoss: {} \n'.format(np.array(h_loss).std())
+        log_txt += '---- \n'
+        
+        print(log_txt)
+        
+        self.iter_num += 1
+        
 
 
 

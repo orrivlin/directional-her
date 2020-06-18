@@ -80,7 +80,7 @@ class Conv2Vec(nn.Module):
                                             nn.MaxPool2d((2, 2)),
                                             nn.Conv2d(32, 32, kernel_size=3, padding=1),
                                             nn.Flatten(1),
-                                            nn.Linear(800, 256),
+                                            nn.Linear(128, 256),
                                             nn.ReLU(),
                                             nn.Linear(256, 256),
                                             nn.ReLU(),

@@ -49,18 +49,22 @@ class Nav2D:
         grid[start[0],start[1],1] = self.scale*1.0
         grid[finish[0],finish[1],2] = self.scale*1.0
         self.grid = grid
+        self.n_step = 0
         return np.transpose(grid, (2, 0, 1))
     
     def step(self, action):
         grid = self.grid.copy()
         new_grid = dc(grid)
         done = False
-        reward = -1.0
+        self.n_step += 1
+        if self.n_step + 1 >= self.N:
+            done = True
+        reward = 0.0
         act = np.array([[1,0],[0,1],[-1,0],[0,-1]])
         pos = np.argwhere(grid[:,:,1] == self.scale**1.0)[0]
         target = np.argwhere(grid[:,:,2] == self.scale*1.0)[0]
         new_pos = pos + act[action]
-        
+                
         if (np.any(new_pos < 0.0) or np.any(new_pos > (self.N - 1)) or (grid[new_pos[0],new_pos[1],0] == 1.0)):
             self.grid = grid
             return np.transpose(grid, (2, 0, 1)), reward, done, dict()
